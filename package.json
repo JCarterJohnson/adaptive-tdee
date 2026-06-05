@@ -1,0 +1,14 @@
+{
+  "name": "tdee-calculator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Research-grounded next-generation TDEE calculator",
+  "scripts": {
+    "test": "node calc.test.mjs",
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.100.1"
+  }
+}

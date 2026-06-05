@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Adaptive TDEE — a research-grounded energy expenditure calculator</title>
+  <meta name="description" content="A TDEE calculator that corrects for body composition, granular activity, NEAT, plasma donation, and metabolic adaptation — grounded in published research." />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+</head>
+<body>
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <div class="wrap">
+      <p class="eyebrow">Beyond population averages</p>
+      <h1>Adaptive TDEE Calculator</h1>
+      <p class="lede">
+        Standard calculators predict a <em>population average</em>, then assume your metabolism is static.
+        This one prioritises <strong>lean body mass</strong>, reads your week in <strong>plain English</strong>,
+        and adjusts for <strong>NEAT</strong>, <strong>plasma donation</strong>, and <strong>metabolic adaptation</strong>.
+        Every formula is tied to the sources cited below.
+      </p>
+    </div>
+  </header>
+
+  <main class="wrap layout">
+    <!-- ================= INPUT FORM ================= -->
+    <form id="calc" class="card form" autocomplete="off" novalidate>
+      <h2 class="card-title">Your numbers</h2>
+
+      <!-- Sex + units -->
+      <div class="row">
+        <div class="field">
+          <label>Biological sex</label>
+          <div class="segmented" role="radiogroup" aria-label="Biological sex">
+            <label><input type="radio" name="sex" value="male" checked /><span>Male</span></label>
+            <label><input type="radio" name="sex" value="female" /><span>Female</span></label>
+          </div>
+        </div>
+        <div class="field">
+          <label>Units</label>
+          <div class="segmented" id="units" role="radiogroup" aria-label="Units">
+            <label><input type="radio" name="units" value="metric" checked /><span>Metric</span></label>
+            <label><input type="radio" name="units" value="imperial" /><span>Imperial</span></label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Age / weight / height -->
+      <div class="row">
+        <div class="field">
+          <label for="age">Age</label>
+          <input type="number" id="age" min="14" max="100" value="30" inputmode="numeric" />
+        </div>
+        <div class="field">
+          <label for="weight"><span data-unit-weight>Weight (kg)</span></label>
+          <input type="number" id="weight" min="30" max="350" step="0.1" value="80" inputmode="decimal" />
+        </div>
+      </div>
+
+      <div class="row" id="height-metric">
+        <div class="field">
+          <label for="heightCm">Height (cm)</label>
+          <input type="number" id="heightCm" min="120" max="230" step="0.5" value="178" inputmode="decimal" />
+        </div>
+      </div>
+      <div class="row hidden" id="height-imperial">
+        <div class="field">
+          <label for="heightFt">Height (ft)</label>
+          <input type="number" id="heightFt" min="4" max="7" step="1" value="5" inputmode="numeric" />
+        </div>
+        <div class="field">
+          <label for="heightIn">(in)</label>
+          <input type="number" id="heightIn" min="0" max="11" step="1" value="10" inputmode="numeric" />
+        </div>
+      </div>
+
+      <!-- Body fat -->
+      <div class="field">
+        <label for="bodyfat">
+          Body-fat % <span class="muted">(optional, but recommended)</span>
+        </label>
+        <input type="number" id="bodyfat" min="3" max="60" step="0.5" placeholder="e.g. 18" inputmode="decimal" />
+        <p class="help" id="bodyfat-help">
+          Leave blank to use <strong>Mifflin-St Jeor</strong>. Enter a value to switch to the lean-mass
+          <strong>Katch-McArdle</strong> equation — more accurate for lifters and anyone whose body
+          composition is far from average.
+        </p>
+      </div>
+
+      <!-- Activity NLP -->
+      <div class="field">
+        <label for="activity">Describe a typical week, in your own words</label>
+        <textarea id="activity" rows="4"
+          placeholder="e.g. I lift weights 4 days a week for an hour, but work a desk job and walk about 5,000 steps a day"></textarea>
+        <div class="ai-row">
+          <button type="button" id="ai-parse" class="ai-btn">✨ Understand with AI</button>
+          <span id="ai-status" class="ai-status"></span>
+        </div>
+        <p class="help">
+          Typing is parsed instantly by a keyword engine. For messy or unconventional schedules
+          (“two-a-days Tue/Thu, coach soccer on weekends”), click <strong>Understand with AI</strong> to send the
+          text to Claude for a smarter read. Either way the calorie math is done by the same tested engine — the
+          model only extracts the structure, which is shown below so you can correct it.
+        </p>
+        <div id="parse-output" class="parse-output" aria-live="polite"></div>
+        <details class="advanced">
+          <summary>Override the base activity multiplier (advanced)</summary>
+          <div class="field">
+            <label for="basePAL">Base PAL (non-exercise lifestyle): <output id="basePAL-val">auto</output></label>
+            <input type="range" id="basePAL" min="1.2" max="2.4" step="0.05" />
+            <button type="button" class="link-btn" id="basePAL-reset">reset to parsed value</button>
+          </div>
+        </details>
+      </div>
+
+      <!-- Plasma -->
+      <div class="field toggle-field">
+        <label class="switch">
+          <input type="checkbox" id="plasma-enabled" />
+          <span class="track"></span>
+          <span class="switch-label">I donate plasma</span>
+        </label>
+      </div>
+      <div class="subcard hidden" id="plasma-fields">
+        <div class="field">
+          <label for="plasma-sessions">Sessions per week</label>
+          <input type="number" id="plasma-sessions" min="0" max="3" step="1" value="2" inputmode="numeric" />
+        </div>
+        <p class="subcard-note">Per-session calories are computed from your body weight — no guessing. Here’s the breakdown:</p>
+        <div id="plasma-breakdown" class="plasma-breakdown" aria-live="polite"></div>
+        <label class="check">
+          <input type="checkbox" id="plasma-strict" />
+          Count only the metabolic synthesis cost (strict expenditure), not the replaced protein mass
+        </label>
+        <p class="caveat">
+          🧪 <strong>How this number is built.</strong> Plasmapheresis returns your red cells and keeps ~690–880&nbsp;mL
+          of plasma (more for heavier donors — which is why the figure scales with your weight). That plasma carries
+          ~70–80&nbsp;g/L protein, so a session removes ~50–66&nbsp;g of protein. The default counts its caloric content
+          (~4&nbsp;kcal/g) <em>plus</em> the ~2.2&nbsp;kcal/g cost to resynthesise it — the “replacement” figure that
+          matters for a maintenance target. That lands near <strong>~355–455&nbsp;kcal</strong>, below the popular
+          <strong>500–650</strong> figures (Columbia, UC San Diego) because those are for <em>whole-blood</em> donation,
+          where most of the calories are hemoglobin you don’t lose giving plasma. The real value still shifts a bit with
+          hydration, diet, and your actual protein level, so read it as a solid estimate, not a precise count.
+        </p>
+      </div>
+
+      <!-- Metabolic adaptation -->
+      <div class="field">
+        <label for="adaptation">Recent diet history (past 8+ weeks)</label>
+        <select id="adaptation">
+          <option value="none" selected>Weight-stable / eating at maintenance</option>
+          <option value="deficit_mild">Mild calorie deficit, 8+ weeks</option>
+          <option value="deficit_moderate">Sustained deficit / clear dieting, 8+ weeks</option>
+          <option value="deficit_aggressive">Aggressive or very long deficit</option>
+          <option value="surplus">Calorie surplus / bulking, 8+ weeks</option>
+        </select>
+        <p class="help" id="adaptation-help">
+          Prolonged deficits trigger <strong>adaptive thermogenesis</strong> — expenditure drops <em>beyond</em> what
+          tissue loss predicts and lingers afterward (Trexler 2014). A surplus nudges it slightly up. Applied as a
+          modest multiplier.
+        </p>
+      </div>
+
+      <!-- Goal (optional) -->
+      <details class="advanced">
+        <summary>Project a weight goal (optional)</summary>
+        <div class="row">
+          <div class="field">
+            <label for="goal-weight"><span data-unit-weight>Target weight (kg)</span></label>
+            <input type="number" id="goal-weight" min="30" max="350" step="0.1" placeholder="e.g. 74" inputmode="decimal" />
+          </div>
+          <div class="field">
+            <label for="goal-rate">Daily calorie offset</label>
+            <select id="goal-rate">
+              <option value="-250">Mild loss (−250)</option>
+              <option value="-500" selected>Loss (−500)</option>
+              <option value="-1000">Aggressive loss (−1000)</option>
+              <option value="250">Mild gain (+250)</option>
+              <option value="500">Gain (+500)</option>
+            </select>
+          </div>
+        </div>
+        <div id="goal-output" class="goal-output"></div>
+      </details>
+    </form>
+
+    <!-- ================= RESULTS ================= -->
+    <aside class="results">
+      <div class="card result-card">
+        <h2 class="card-title">Your estimated maintenance</h2>
+        <div class="tdee-headline">
+          <span id="tdee-value" class="tdee-value">—</span>
+          <span class="tdee-unit">kcal/day</span>
+        </div>
+        <p class="tdee-range">
+          Realistic range <strong id="tdee-range">—</strong>
+          <span class="muted">(±12%; see the uncertainty note)</span>
+        </p>
+
+        <div class="breakdown" id="breakdown" aria-hidden="false"></div>
+        <ul class="breakdown-legend" id="breakdown-legend"></ul>
+
+        <dl class="kv">
+          <div><dt>Resting metabolism (BMR)</dt><dd><span id="bmr-value">—</span> kcal</dd></div>
+          <div><dt>Method</dt><dd id="bmr-method">—</dd></div>
+          <div><dt>Effective activity multiplier</dt><dd id="eff-pal">—</dd></div>
+          <div><dt>BMI <span class="muted">(see caveats below)</span></dt><dd id="bmi-value">—</dd></div>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h3 class="card-subtitle">Calorie targets</h3>
+        <div id="targets" class="targets"></div>
+      </div>
+
+      <div class="card">
+        <h3 class="card-subtitle">Independent cross-checks</h3>
+        <div id="crosschecks" class="crosschecks"></div>
+        <p class="help" id="uncertainty">
+          Even after correcting for lean mass, activity, sex and age, doubly-labelled-water data
+          (Pontzer 2021) show individuals still vary by <strong>more than ±20%</strong>. Use this number as a
+          well-reasoned starting point, then adjust from two weeks of real intake-vs-weight data.
+        </p>
+      </div>
+    </aside>
+  </main>
+
+  <!-- ================= DIET & MACRO PLANNER ================= -->
+  <section class="diet">
+    <div class="wrap">
+      <div class="card diet-card">
+        <h2 class="card-title">Diet &amp; macro planner</h2>
+        <p class="help">
+          Slide to pick your intensity — from a <strong>1,000 kcal cut</strong> to a <strong>1,000 kcal bulk</strong>.
+          Macros are built from <em>your exact maintenance</em> (<output id="diet-tdee">—</output> kcal), with protein set
+          per <strong>Stronger By Science</strong> (scaled to your lean mass when body-fat % is entered).
+        </p>
+
+        <div class="diet-slider-wrap">
+          <input type="range" id="diet-offset" min="-1000" max="1000" step="50" value="0"
+            aria-label="Daily calorie offset from maintenance" />
+          <div class="diet-scale">
+            <span class="s-danger">−1000 · cut</span>
+            <span>maintenance</span>
+            <span class="s-bulk">+1000 · bulk</span>
+          </div>
+        </div>
+
+        <div class="diet-headline">
+          <span class="diet-goal" id="diet-goal-badge">Maintenance</span>
+          <span class="diet-cal"><strong id="diet-target">—</strong> <span class="muted">kcal/day</span></span>
+          <span class="diet-rate muted" id="diet-rate"></span>
+        </div>
+        <p class="diet-warn hidden" id="diet-warn"></p>
+
+        <div class="macro-bar" id="macro-bar" aria-hidden="false"></div>
+        <div class="macro-table" id="macro-table"></div>
+
+        <p class="help diet-sources">
+          <strong>Protein</strong> — Stronger By Science (Nuckols); corroborated by Roberts/Helms 2020 (1.8–2.7 g/kg, up to 3.5).
+          <strong>Fat</strong> — 15–25% of calories (Helms 2020), floored at 0.5 g/kg for hormones.
+          <strong>Carbs</strong> — the remainder; resistance trainees don't need endurance-style carb loads (Escobar 2017).
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= RESEARCH & PITFALLS ================= -->
+  <section class="research">
+    <div class="wrap">
+      <h2>Research &amp; pitfalls: why most TDEE numbers are wrong</h2>
+      <p class="research-intro">
+        A TDEE estimate is only as honest as its assumptions. Below is what the literature actually says about
+        where these calculators break down — and how this tool tries to do better. Citations refer to the
+        sources listed at the end.
+      </p>
+
+      <div class="research-grid">
+        <article>
+          <h3>1. They predict a population, not <em>you</em></h3>
+          <p>
+            Equations like Mifflin-St Jeor and Harris-Benedict are regressions fit to groups. They work “reasonably
+            well across large groups, but an individual can easily be 10–20% above or below the prediction”
+            <cite>[Problems]</cite>. A true maintenance of 2,800 kcal could be predicted anywhere from ~2,400 to
+            ~3,200. The Pontzer life-course dataset is blunter still: total expenditure varies
+            <strong>more than ±20%</strong> between people <em>even after</em> controlling for fat-free mass, fat mass,
+            sex and age <cite>[Pontzer&nbsp;2021]</cite>. That irreducible spread is why we show a range, not just a point.
+          </p>
+        </article>
+
+        <article>
+          <h3>2. Activity buttons are too blunt</h3>
+          <p>
+            “Sedentary / lightly / moderately / very active” are vague. A student who lifts five days a week but
+            sits otherwise may pick “very active,” while a warehouse worker with no gym time picks “moderately active”
+            and is badly under-counted <cite>[Problems]</cite>. We instead build a Physical Activity Level from your
+            described <em>job</em> (PAL bands from the FAO/Black tables: seated 1.4–1.5, standing work 1.8–1.9,
+            strenuous 2.0–2.4 <cite>[Estimating]</cite>) and add each workout separately via METs
+            <cite>[Computational]</cite>.
+          </p>
+        </article>
+
+        <article>
+          <h3>3. Exercise calories are inflated</h3>
+          <p>
+            Trackers, cardio machines and online calculators routinely overstate burn: “someone who believes they
+            burn 800 calories during a workout may actually burn 400–600” <cite>[Problems]</cite>. Two guards keep us
+            honest — we use moderate MET values, and we count only the <strong>net</strong> cost above rest
+            (MET − 1), because the resting calories during that hour are already inside your base multiplier.
+          </p>
+        </article>
+
+        <article>
+          <h3>4. NEAT is the hidden hundreds</h3>
+          <p>
+            Non-Exercise Activity Thermogenesis — walking, fidgeting, standing, chores — is the single largest swing
+            factor. “Two people with identical workouts can differ by hundreds of calories per day because one
+            naturally moves much more than the other” <cite>[Problems]</cite>. In sedentary people EAT can be ~0% of
+            expenditure; NEAT makes up the remainder <cite>[Estimating]</cite>. That’s why a step count moves your
+            number here, and why the honest range stays wide.
+          </p>
+        </article>
+
+        <article>
+          <h3>5. Total weight ≠ metabolic tissue</h3>
+          <p>
+            Fat-free mass is what correlates with resting metabolism, “independent of age, BMI, and other metabolic
+            variables” <cite>[One2One]</cite>. Two 158-lb people at 33% vs 45% body fat had RMRs of 1,571 vs 1,252
+            kcal/day <cite>[One2One]</cite>. Equations on total weight alone can’t see that. With a body-fat input we
+            switch to Katch-McArdle (370 + 21.6 × lean mass) and cross-check it against the FFM equation
+            23.9 × FFM + 372 <cite>[Estimating]</cite> and the Pontzer FFM power law <cite>[Pontzer&nbsp;2021]</cite>.
+          </p>
+        </article>
+
+        <article>
+          <h3>6. Metabolism isn’t static</h3>
+          <p>
+            After a prolonged deficit, every component of expenditure falls — BMR, NEAT, the thermic effect of food,
+            even the cost of moving — by <em>more</em> than lost tissue predicts. This <strong>adaptive
+            thermogenesis</strong> persists after weight stabilises, and its size is proportional to the deficit
+            <cite>[Trexler&nbsp;2014]</cite>; very-low-calorie dieting slows metabolism to protect vital organs
+            <cite>[One2One]</cite>. Overfeeding pushes the other way (~+7% acutely <cite>[Trexler&nbsp;2014]</cite>).
+            The diet-history selector applies a modest version of this.
+          </p>
+        </article>
+
+        <article class="span">
+          <h3>7. On plasma donation — where the numbers actually come from</h3>
+          <p>
+            This figure is <strong>derived from biochemistry</strong>, not invented. Plasma is 91–92% water and 8–9%
+            solids, carrying ~70–90&nbsp;g/L of protein <cite>[StatPearls]</cite><cite>[Deranged&nbsp;Physiology]</cite>.
+            A plasma session keeps ~690–880&nbsp;mL (more for heavier donors), removing roughly 50–66&nbsp;g of protein.
+            The cost has two parts: the caloric <em>content</em> that leaves (~4&nbsp;kcal/g) and the energy to
+            <em>resynthesise</em> it (~2.2&nbsp;kcal/g). A PhD-biochemistry itemisation pegs a whole-blood unit at
+            ~425–460&nbsp;kcal of content, “higher” once synthesis inefficiency is added <cite>[Maynard]</cite>; an
+            apheresis director cites ~500&nbsp;kcal to replace a donation <cite>[Columbia]</cite> and UC San Diego ~650
+            <cite>[UCSD]</cite>. Those higher figures are for <em>whole blood</em>, most of which is hemoglobin.
+            Plasma donation returns your red cells <cite>[StatPearls]</cite>, so the plasma-specific number is lower,
+            ~355–455&nbsp;kcal — which is what this tool computes, scaled by your weight. It remains the most variable
+            input (hydration, diet, protein level, donation type), so it’s the one we let you tune directly.
+          </p>
+          <p>
+            Finally, the honest disclaimer no parser can remove: <strong>self-reported activity is biased.</strong>
+            People over-report exercise and under-report sitting; structured-text parsing makes the estimate
+            <em>granular and transparent</em>, but it cannot make a rough self-description accurate. Treat the output
+            as a hypothesis to test against two weeks of weigh-ins, not a measurement. The gold standard remains
+            indirect calorimetry or doubly-labelled water <cite>[Estimating]</cite>.
+          </p>
+        </article>
+
+        <article>
+          <h3>8. BMI is a population tool, not a verdict on <em>you</em></h3>
+          <p>
+            The BMI shown above is just weight ÷ height² — a fine screen across large groups, but it
+            <strong>cannot tell muscle from fat</strong>. A lean 180-lb lifter and a sedentary 180-lb person get the
+            identical BMI, and muscular athletes are routinely flagged “overweight” or even “obese.” It also ignores
+            fat distribution, age, sex, and ethnicity. This is the same lesson as the rest of the tool: total weight
+            hides body composition. Read your BMI as rough context, and trust your body-fat % and the mirror over the
+            category label.
+          </p>
+        </article>
+
+        <article class="span">
+          <h3>9. How the macro targets are built (and why the deep cut is red)</h3>
+          <p>
+            <strong>Protein comes first</strong>, set per Stronger By Science <cite>[SBS]</cite>: ~2.0 g/kg bodyweight
+            to maintain or gain (women ~1.75), and — when you enter body-fat % — scaled to <em>fat-free mass</em>
+            (~2.35 g/kg FFM), which SBS argues is the more accurate anchor. Dieting raises the target (≥2.5 g/kg FFM,
+            up to 4.0) to defend lean mass, and the benefit is larger the leaner you are. This converges with
+            Roberts/Helms’ 1.8–2.7 g/kg (up to 3.5) <cite>[Roberts&nbsp;2020]</cite>. <strong>Fat</strong> is set at
+            15–25% of calories (a little lower on a cut) with a 0.5 g/kg floor for hormones <cite>[Roberts&nbsp;2020]</cite>,
+            and <strong>carbohydrate takes the remaining “energy budget.”</strong> Resistance trainees genuinely don’t
+            need the 4–7 g/kg carb loads borrowed from endurance sport — low-carb doesn’t impair lifting performance or
+            hypertrophy signalling <cite>[Carb&nbsp;Need]</cite>.
+          </p>
+          <p>
+            The slider turns <strong>red toward the −1,000 deficit</strong> for a reason: a gradual loss of
+            <strong>0.5–1% of bodyweight per week</strong> best preserves muscle <cite>[Bulk/Cut]</cite>, and the size of
+            the deficit drives the size of the metabolic adaptation and muscle loss <cite>[Trexler&nbsp;2014]</cite>. The
+            badge tells you your <em>personal</em> weekly rate, since “too aggressive” depends on your bodyweight — a
+            −1,000 deficit is ~1.1%/week for an 80 kg lifter (danger) but only ~0.9% for someone at 100 kg. These macros
+            are a research-grounded starting point; adherence and two weeks of real-world adjustment matter more than the
+            decimals.
+          </p>
+        </article>
+      </div>
+
+      <h3 class="refs-title">Sources</h3>
+      <ol class="refs">
+        <li><span class="tag">[Problems]</span> <em>Problems with Modern TDEE.</em> Provided briefing on population-average error, activity-category vagueness, exercise overestimation, NEAT, body composition, and metabolic adaptation.</li>
+        <li><span class="tag">[Estimating]</span> <em>Estimating Energy Needs for Research Diets.</em> Recommends Mifflin-St Jeor over Harris-Benedict; FFM equation REE = 23.9·FFM + 372; PAL tables (Black et al.; FAO/WHO/UNU).</li>
+        <li><span class="tag">[One2One]</span> <em>Resting Energy Expenditure</em> (ESSCO2O / one2one). REE = 60–70% of TEE; FFM drives REE; REE declines ~2–3%/decade after 20; body-composition RMR example.</li>
+        <li><span class="tag">[Pontzer&nbsp;2021]</span> Pontzer H. et&nbsp;al. <em>Daily energy expenditure through the human life course.</em> Science 373(6556):808–812. TEE = 0.677·FFM<sup>0.708</sup> (r²=0.83); ±20%+ residual variation; decline after ~60.</li>
+        <li><span class="tag">[Trexler&nbsp;2014]</span> Trexler E.T., Smith-Ryan A.E., Norton L.E. <em>Metabolic adaptation to weight loss: implications for the athlete.</em> J&nbsp;Int&nbsp;Soc&nbsp;Sports&nbsp;Nutr 11:7. Adaptive thermogenesis across BMR/NEAT/TEF/EAT; persistence; ~+7% from refeeding.</li>
+        <li><span class="tag">[Computational]</span> <em>Computational Methods with MET.</em> Mifflin worked example; MET kcal/min = MET·kg·3.5/200; body-mass energy density 7700 kcal/kg.</li>
+        <li><span class="tag">[StatPearls]</span> Mathew J, Sankar P, Varacallo M. <em>Physiology, Blood Plasma.</em> StatPearls, 2023. Plasma = 91–92% water, 8–9% solids; in plasmapheresis the red cells are returned to the donor.</li>
+        <li><span class="tag">[Deranged&nbsp;Physiology]</span> Yartsev A. <em>Constituents and functions of plasma.</em> CICM Primary. Plasma protein ~70–90 g/L (~80% albumin).</li>
+        <li><span class="tag">[Maynard]</span> Mark DA. <em>Calories in Human Blood.</em> Maynard Life Outdoors, 2010. Itemised ~425 (women)/460 (men) kcal of content per 500 mL whole-blood unit; replacement cost higher due to synthesis inefficiency.</li>
+        <li><span class="tag">[Columbia]</span> <em>The Surprising Benefits of Donating Blood.</em> Columbia University Irving Medical Center / NewYork-Presbyterian, 2022. Apheresis director: “it takes your body about 500 calories to replace” a donation.</li>
+        <li><span class="tag">[UCSD]</span> <em>Why Donating Blood Is Good For Your Health.</em> Medical Daily, 2013, citing UC San Diego: “~650 calories per pint.”</li>
+        <li><span class="tag">[SBS]</span> Nuckols G. <em>Protein Science Updated: Why It’s Time to Move Beyond the “1.6–2.2 g/kg” Rule.</em> Stronger By Science. ~2.0 g/kg BW (men) / 1.75 (women) or ~2.35 g/kg FFM to maximise gains; dieting ≥2.0 g/kg BW / 2.5 g/kg FFM, up to 3.0 / 4.0.</li>
+        <li><span class="tag">[Roberts&nbsp;2020]</span> Roberts B.M., Helms E.R., Trexler E.T., Fitschen P.J. <em>Nutritional Recommendations for Physique Athletes.</em> J&nbsp;Hum&nbsp;Kinet 71:79–108. Protein 1.8–2.7 g/kg (up to 3.5); fat 15–25% of calories; carbs 2–5 g/kg from the remaining energy budget.</li>
+        <li><span class="tag">[Carb&nbsp;Need]</span> Escobar K.A., VanDusseldorp T.A., Kerksick C.M. <em>Carbohydrate intake and resistance-based exercise: are current recommendations reflective of actual need?</em> Br&nbsp;J&nbsp;Nutr 116:2053–2065. Resistance training doesn’t deplete glycogen like endurance; lower carb intakes don’t impair performance or hypertrophy signalling.</li>
+        <li><span class="tag">[Bulk/Cut]</span> Preiato D. (rev. Tinsley G.). <em>Bulking vs. Cutting.</em> Healthline, 2021. Bulk +10–20% (0.25–0.5%/wk gain); cut ~500 kcal deficit, gradual 0.5–1%/wk loss best preserves muscle; protein 1.4–3.1 g/kg.</li>
+        <li><span class="tag">[Nutrient&nbsp;Timing]</span> Kerksick C.M. et&nbsp;al. <em>ISSN position stand: nutrient timing.</em> J&nbsp;Int&nbsp;Soc&nbsp;Sports&nbsp;Nutr. Daily protein/carbohydrate totals dominate; distribute protein across the day around training.</li>
+      </ol>
+
+      <p class="disclaimer">
+        This tool is for education and self-experimentation, not medical advice. Energy needs in pregnancy,
+        growth, illness, or endocrine disorders fall outside these equations — consult a qualified professional.
+      </p>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>Built from the cited research. Calculation engine verified by an 86-assertion test harness
+        (<code>calc.test.mjs</code>) against the worked examples in the sources.</p>
+    </div>
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

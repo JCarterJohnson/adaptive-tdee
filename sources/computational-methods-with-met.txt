@@ -1,0 +1,110 @@
+Computational Methods
+
+3.1. User Data and Basal Metabolic Rate (BMR) Calculation
+Formula (Mifflin-St Jeor Equation):
+
+For males:
+  BMR = (10 × Weight in kg) + (6.25 × Height in cm) − (5 × Age in years) + 5
+
+For females:
+  BMR = (10 × Weight in kg) + (6.25 × Height in cm) − (5 × Age in years) − 161
+
+Sample Calculation:
+
+Consider a 30-year-old male weighing 70 kg and 175 cm tall.
+  BMR = (10 × 70) + (6.25 × 175) − (5 × 30) + 5
+    = 700 + 1093.75 − 150 + 5
+    = 1648.75 Calories/day
+
+3.2. Total Daily Energy Expenditure (TDEE) and Calorie Targets
+Activity Factor Multipliers:
+
+• Inactive: 1.2
+• Low Active: 1.375
+• Active: 1.55
+• Very Active: 1.725
+
+TDEE Calculation:
+ TDEE = BMR × Activity Factor
+
+Calorie Targets:
+
+• Maintenance: TDEE
+• Mild Weight Loss: TDEE − 250
+• Weight Loss: TDEE − 500
+
+• Extreme Weight Loss: TDEE − 1000
+• Mild Weight Gain: TDEE + 250
+• Weight Gain: TDEE + 500
+• Fast Weight Gain: TDEE + 1000
+
+Sample Calculation:
+Using BMR ≈ 1649 Calories/day and assuming the user is 'Active' (factor = 1.55):
+  TDEE = 1649 × 1.55 ≈ 2556 Calories/day
+Then:
+• Mild Weight Loss ≈ 2556 − 250 = 2306 Calories/day
+• Weight Loss ≈ 2556 − 500 = 2056 Calories/day
+• Extreme Weight Loss ≈ 2556 − 1000 = 1556 Calories/day
+• Mild Weight Gain ≈ 2556 + 250 = 2806 Calories/day
+• Weight Gain ≈ 2556 + 500 = 3056 Calories/day
+• Fast Weight Gain ≈ 2556 + 1000 = 3556 Calories/day
+
+3.3. Metabolic Equivalent of Task (MET) Computation
+MET (Metabolic Equivalent of Task) is a value that represents the energy expenditure of an
+activity compared to resting metabolism.
+Formula:
+  Calories Burned per Minute = (MET × Weight in kg × 3.5) / 200
+
+Sample Calculation:
+Consider a user weighing 70 kg performing an exercise with MET = 8.0.
+  Calories Burned per Minute = (8.0 × 70 × 3.5) / 200
+                = (1960) / 200
+                = 9.8 Calories per minute
+
+3.4. Exercise Calorie Burn Computation
+For time-based exercises, the calorie burn is calculated per second.
+
+Formula:
+  Calories Burned per Second = (MET × Weight in kg × 3.5 / 200) / 60 × Scaling Factor
+
+For rep-based exercises, the calorie burn considers the time per repetition.
+
+Formula:
+  Calories Burned per Rep = Calories Burned per Second × Rep Duration × Scaling Factor
+
+Sample Calculation for Time-Based Exercise:
+Assume MET = 8.0, Weight = 70 kg, and scaling factor = 1.0.
+  Calories/Minute = (8.0 × 70 × 3.5) / 200 ≈ 9.8 Calories/min
+  Calories per Second = 9.8 / 60 ≈ 0.163 Calories/sec
+  For 60 seconds: 60 × 0.163 ≈ 9.78 Calories.
+
+Sample Calculation for Rep-Based Exercise:
+Assume MET = 7.0, Rep Duration = 3 sec, Weight = 70 kg, and scaling factor = 1.0.
+  Calories/Minute = (7.0 × 70 × 3.5) / 200 ≈ 8.575 Calories/min
+  Calories per Second = 8.575 / 60 ≈ 0.143 Calories/sec
+  Calories per Rep = 0.143 × 3 ≈ 0.429 Calories/rep
+
+3.5. Prediction of Goal (Target Weight) and Time to Reach Goal
+Formula:
+
+1. Total Weight Change (kg) = Target Weight − Current Weight
+2. Daily Calorie Offset (kcal/day) is predetermined (e.g., −500 for weight loss, +500 for
+weight gain).
+
+3. Estimated Daily Weight Change (kg) = Offset / 7700
+
+4. Total Days to Reach Target = |Total Change| / Daily Weight Change
+
+5. Weeks to Goal = Total Days / 7
+
+6. Goal Date = Current Date + Total Days
+
+Sample Calculation:
+Suppose a user’s current weight is 80 kg and target weight is 70 kg, with a daily deficit of
+500 kcal.
+  Daily Weight Change = 500 / 7700 ≈ 0.065 kg/day
+  Total Weight Change = 80 − 70 = 10 kg
+  Total Days ≈ 10 / 0.065 ≈ 154 days
+  Weeks to Goal ≈ 154 / 7 ≈ 22 weeks
+  Goal Date = Today + 154 days
+
