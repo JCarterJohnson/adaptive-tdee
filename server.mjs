@@ -19,7 +19,7 @@ import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, normalize, extname } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
-import { MET_TABLE, OCCUPATION_PAL } from "./calc.js";
+import { MAX_TOKENS, parseActivityLLM } from "./lib/activity-parser.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 4174;
@@ -32,7 +32,6 @@ const PORT = Number(process.env.PORT) || 4174;
 // Override with ANTHROPIC_MODEL if you have a reason to.
 // ---------------------------------------------------------------------------
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5";
-const MAX_TOKENS = 300;
 
 const API_KEY = process.env.ANTHROPIC_API_KEY; // secure: env only, never shipped to the browser
 const client = API_KEY
@@ -71,89 +70,26 @@ setInterval(() => {
 }, RATE_WINDOW_MS).unref();
 
 // ---------------------------------------------------------------------------
-// Extraction prompt + JSON schema. Allowed values come from calc.js so the model
-// can only emit activities/occupations the engine knows how to price.
-// ---------------------------------------------------------------------------
-const ACTIVITIES = Object.keys(MET_TABLE);
-const OCCUPATIONS = Object.keys(OCCUPATION_PAL);
-
-const SYSTEM_PROMPT = `You extract a structured weekly-activity profile from a free-text description for a TDEE (energy expenditure) calculator. You do NOT compute calories — downstream code does that. Return only the structured fields.
-
-OCCUPATION — choose the single key that best matches the person's typical work/day:
-- "desk": mostly seated (office, programming, driving a desk job, remote work, a student who mostly sits, writer, analyst).
-- "student": general student/campus life with meaningful walking between classes.
-- "standing": on their feet much of the day (teacher, cashier, retail, host, bartender-lite).
-- "active_job": continuous moving (nurse, server/waiter, delivery, housekeeping, light warehouse).
-- "labor": heavy physical work (construction, mover, landscaping, farm, roofing).
-Pick the most physically demanding role that genuinely fits. If unclear, use "desk" and add a note.
-
-STEPS — integer daily step count if stated ("5,000 steps", "10k") else 0. Convert "10k" to 10000. If steps are given per week, divide to a daily figure and note it.
-
-SESSIONS — one entry per distinct intentional workout. Map each to the closest activity key from this list: ${ACTIVITIES.join(", ")}.
-- daysPerWeek: how many days per week (use 3.5 for "every other day", 7 for "daily").
-- minutes: minutes per session.
-- If frequency or duration is missing, estimate sensibly (default 3 days/week, 45 min) and add a note naming the assumption.
-- Do NOT create a session for plain step-count walking (that's captured by STEPS). Do create one for deliberate "I walk 30 min for exercise" type entries.
-- Two-a-days or split routines: sum into realistic per-week totals.
-
-NOTES — short strings flagging any assumption or ambiguity you resolved. Empty array if everything was explicit.`;
-
-const SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    occupation: {
-      type: "object", additionalProperties: false,
-      properties: { key: { type: "string", enum: OCCUPATIONS } }, required: ["key"],
-    },
-    steps: { type: "integer" }, // 0 = none stated
-    sessions: {
-      type: "array",
-      items: {
-        type: "object", additionalProperties: false,
-        properties: {
-          activity: { type: "string", enum: ACTIVITIES },
-          daysPerWeek: { type: "number" },
-          minutes: { type: "integer" },
-        },
-        required: ["activity", "daysPerWeek", "minutes"],
-      },
-    },
-    notes: { type: "array", items: { type: "string" } },
-  },
-  required: ["occupation", "steps", "sessions", "notes"],
-};
-
-async function parseActivityLLM(text, weightKg) {
-  // Haiku 4.5: structured outputs only — no `effort`/`thinking` (those error on Haiku).
-  const resp = await client.messages.create({
-    model: MODEL,
-    max_tokens: MAX_TOKENS,
-    system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-    output_config: { format: { type: "json_schema", schema: SCHEMA } },
-    messages: [{
-      role: "user",
-      content: `Body weight: ${weightKg} kg.\n\nDescribe-your-week text:\n"""${text}"""`,
-    }],
-  });
-  const block = resp.content.find((b) => b.type === "text");
-  const data = JSON.parse(block.text); // structured output → valid JSON (throws → caught → fallback)
-  return {
-    occupationKey: data.occupation?.key ?? "desk",
-    steps: data.steps && data.steps > 0 ? data.steps : null,
-    sessions: Array.isArray(data.sessions) ? data.sessions : [],
-    notes: Array.isArray(data.notes) ? data.notes : [],
-  };
-}
-
-// ---------------------------------------------------------------------------
 // HTTP helpers
 // ---------------------------------------------------------------------------
 const MIME = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript",
   ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".ico": "image/x-icon",
   ".pdf": "application/pdf", ".txt": "text/plain; charset=utf-8",
+  // Both of these were missing, and both were being served as application/octet-stream:
+  // .xml would make Google reject sitemap.xml, and .png breaks og-image.png in link previews.
+  ".xml": "application/xml; charset=utf-8", ".png": "image/png",
 };
+
+// Allow-all fallback, served only if robots.txt is somehow absent from the deploy.
+// A 404 here is already permissive (crawlers treat it as "crawl everything"), but a
+// 5xx is NOT: Google reads a persistent 5xx on robots.txt as "disallow everything" and
+// will drop the site from the index. Answering from memory means that can never happen.
+const ROBOTS_FALLBACK = `User-agent: *
+Allow: /
+
+Sitemap: https://www.thetdee.com/sitemap.xml
+`;
 function send(res, code, body, { type = "application/json", headers = {} } = {}) {
   res.writeHead(code, {
     "content-type": type, "cache-control": "no-store", "x-content-type-options": "nosniff", ...headers,
@@ -218,7 +154,7 @@ const server = http.createServer(async (req, res) => {
     if (!client) return sendJson(res, 503, { ok: false, error: "provider_unavailable" });
 
     try {
-      const result = await parseActivityLLM(String(text).slice(0, 4000), Number(weightKg) || 75);
+      const result = await parseActivityLLM(client, MODEL, String(text).slice(0, 4000), Number(weightKg) || 75);
       return sendJson(res, 200, { ok: true, ...result });
     } catch (err) {
       // Billing limit, timeout, 429, 5xx, or unparseable output — all collapse to one clean error.
@@ -235,7 +171,11 @@ const server = http.createServer(async (req, res) => {
   if (!filePath.startsWith(__dirname)) return send(res, 403, "Forbidden", { type: "text/plain" }); // no traversal
 
   let info;
-  try { info = await stat(filePath); } catch { return send(res, 404, "Not Found", { type: "text/plain" }); }
+  try { info = await stat(filePath); } catch {
+    if (path === "/robots.txt")
+      return send(res, 200, ROBOTS_FALLBACK, { type: "text/plain; charset=utf-8" });
+    return send(res, 404, "Not Found", { type: "text/plain" });
+  }
   if (!info.isFile()) return send(res, 404, "Not Found", { type: "text/plain" });
 
   // These assets are NOT content-hashed and are tightly coupled (index.html ⇄ app.js ⇄

@@ -48,8 +48,38 @@ node calc.test.mjs     # 86 assertions, all tied to the source documents
 | `app.js` | UI glue — reads inputs, calls the engine, paints results live |
 | `calc.js` | **Pure, tested calculation engine.** All formulas + source tags live here |
 | `server.mjs` | Optional Node server: static files + Claude-backed `/api/parse-activity` |
+| `lib/activity-parser.mjs` | The Claude prompt + JSON schema, shared by `server.mjs` and `api/` so there is one copy |
+| `api/parse-activity.js` | Serverless port of the same endpoint, for hosts that run functions rather than a long-lived process |
 | `calc.test.mjs` | Node verification harness (run with `node calc.test.mjs`) |
+| `robots.txt`, `sitemap.xml` | Crawler directives. Read the hosting note below before touching these |
 | `sources/` | Bundled copies of the provided-only source documents, linked from the citations |
+
+## Hosting note, and why it is an SEO problem
+
+Read this before moving or redeploying the site.
+
+**A Render Free web service silently de-indexes this site.** Render spins a Free instance
+down after 15 minutes without traffic, and while it is spun down Render answers
+`/robots.txt` itself, with `User-agent: * / Disallow: /`. Those requests never reach
+`server.mjs`, so the `robots.txt` in this repo is bypassed entirely. Googlebot crawls on
+its own schedule and therefore usually arrives to find the instance asleep and is told to
+go away. Render's own docs say Free instances are not for production use.
+
+The consequence worth internalising: **you cannot fix this from inside the repo.** Adding,
+editing, or perfecting `robots.txt` does nothing while the host is intercepting the path.
+The fix has to be a host that does not sleep. Any of these work:
+
+- A paid Render instance (Free is the only tier that spins down).
+- Vercel, via the included `vercel.json` and `api/parse-activity.js`. Set `ANTHROPIC_API_KEY`
+  in the project's environment variables, or the AI parser returns 503 and the browser quietly
+  falls back to the offline keyword parser.
+- Any static host, if you are willing to drop `/api/parse-activity`. The app is built to work
+  without it.
+
+Do not try to solve this with a cron job that pings the site every ten minutes. Render grants
+750 Free instance hours per month and a month is about 730 hours, so keeping one service awake
+around the clock consumes essentially the entire allowance. Exceeding it suspends every Free
+web service in the workspace, which takes the site down instead of merely de-indexing it.
 
 ## BMI + diet & macro planner
 
